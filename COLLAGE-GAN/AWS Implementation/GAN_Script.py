@@ -14,10 +14,20 @@ from tensorflow.keras.optimizers import Adam
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-#tensorflow.config.run_functions_eagerly(True)
+import boto3
+from boto3 import Session
+
+session = Session()
+credentials = session.get_credentials()
+
+#aws access credentials
+current_credentials = credentials.get_frozen_credentials()
 
 
-def model(args, x_train):
+
+
+
+def model(args, x_train,client):
     
     adam = Adam(learning_rate=0.0002)
     # Function for Generator
@@ -113,7 +123,16 @@ def model(args, x_train):
                 g_loss = GAN.train_on_batch(noise, valid)
                 
                 print("******* %d %d [D loss: %f, acc: %.2f%%] [G loss: %f]" % (epoch,j, d_loss[0], 100* d_loss[1], g_loss))
-
+                
+            #Save the latest model
+            
+            generator.save('my_generator.h5') 
+            client.upload_file(Filename='my_generator.h5',Bucket='tellisa-collage-gan',Key='my_generator.h5')
+            
+            discriminator.save('my_discriminator.h5')
+            client.upload_file(Filename='my_discriminator.h5',Bucket='tellisa-collage-gan',Key='my_discriminator.h5')
+        
+        
 
 
 
@@ -159,9 +178,10 @@ def _parse_args():
     
     # Hyperparameters are described here.
     parser.add_argument('--batch_size', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--epochs', type=int, default=3)
     parser.add_argument('--latent_dim', type=int, default=100)
     parser.add_argument('--image_dim',type=int,default=128)
+    
 
     # Data, model, and output directories
     # model_dir is always passed in from SageMaker. By default this is a S3 path under the default bucket.
@@ -178,10 +198,16 @@ def _parse_args():
 
 if __name__ == "__main__":
     args, unknown = _parse_args()
+    
+    client = boto3.client(
+    's3',
+    aws_access_key_id=current_credentials.access_key,
+    aws_secret_access_key=current_credentials.secret_key,
+    aws_session_token=current_credentials.token)
 
     train_data = _load_data(args.train,'train')
 
-    gan = model(args,train_data)
+    gan = model(args,train_data,client)
 
     if args.current_host == args.hosts[0]:
         # save model to an S3 directory with version number '00000001'
