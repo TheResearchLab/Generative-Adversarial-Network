@@ -24,7 +24,7 @@ def create_client():
     #aws access credentials
     current_credentials = credentials.get_frozen_credentials()
 
-    return client = boto3.client(
+    return boto3.client(
     's3',
     aws_access_key_id=current_credentials.access_key,
     aws_secret_access_key=current_credentials.secret_key,
