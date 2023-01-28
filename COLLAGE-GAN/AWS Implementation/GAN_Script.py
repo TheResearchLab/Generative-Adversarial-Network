@@ -17,13 +17,18 @@ import tensorflow as tf
 import boto3
 from boto3 import Session
 
-session = Session()
-credentials = session.get_credentials()
+def create_client():
+    session = Session()
+    credentials = session.get_credentials()
 
-#aws access credentials
-current_credentials = credentials.get_frozen_credentials()
+    #aws access credentials
+    current_credentials = credentials.get_frozen_credentials()
 
-
+    return client = boto3.client(
+    's3',
+    aws_access_key_id=current_credentials.access_key,
+    aws_secret_access_key=current_credentials.secret_key,
+    aws_session_token=current_credentials.token)
 
 
 
@@ -90,11 +95,11 @@ def model(args, x_train,client):
 
 
 
-    def train(x_train,epochs, batch_size=64):
+    def train(x_train,epochs,batch_size=args.batch_size):
 
         
-        #Rescale data between -1 and 1
-        x_train = x_train / 255 #/ 127.5 -1.
+        
+        #x_train = x_train / 255 #/ 127.5 -1.
         bat_per_epo = int(x_train.shape[0] / batch_size)
         x_train = x_train.reshape(x_train.shape[0],args.image_dim,args.image_dim,3) 
 
@@ -105,8 +110,8 @@ def model(args, x_train,client):
         for epoch in range(epochs):
             for j in range(bat_per_epo):
                 #Get Random Batch
-                idx = np.random.randint(0, x_train.shape[0], batch_size)
-                print(idx)
+                idx = np.random.randint(0, x_train.shape[0],batch_size)
+                #print(idx)
                 imgs = x_train[idx]
                 #Generate Fake Images
                 noise = np.random.normal(0, 1, (batch_size, args.latent_dim)) #100 for latent_dim
@@ -117,7 +122,7 @@ def model(args, x_train,client):
                 d_loss_fake = discriminator.train_on_batch(gen_imgs, fakes)
                 d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
-                noise = np.random.normal(0, 1, (args.batch_size, args.latent_dim))
+                noise = np.random.normal(0, 1, (batch_size, args.latent_dim))
 
                 #inverse y label
                 g_loss = GAN.train_on_batch(noise, valid)
@@ -126,15 +131,19 @@ def model(args, x_train,client):
                 
             #Save the latest model
             
-            generator.save('my_generator.h5') 
-            client.upload_file(Filename='my_generator.h5',Bucket='tellisa-collage-gan',Key='my_generator.h5')
+            try:
+                generator.save('my_generator.h5') 
+                client.upload_file(Filename='my_generator.h5',Bucket='tellisa-collage-gan',Key='my_generator.h5')
             
-            discriminator.save('my_discriminator.h5')
-            client.upload_file(Filename='my_discriminator.h5',Bucket='tellisa-collage-gan',Key='my_discriminator.h5')
+                discriminator.save('my_discriminator.h5')
+                client.upload_file(Filename='my_discriminator.h5',Bucket='tellisa-collage-gan',Key='my_discriminator.h5')
+            except:
+                client = create_client()
+                pass
         
         
 
-
+    # Needs to look for previously trained models first
 
     # GAN Setup 1
     generator = build_generator() #Build generator
@@ -165,11 +174,12 @@ def _load_data(file_path, channel):
                           'the data specification in S3 was incorrectly specified or the role specified\n' +
                           'does not have permission to access the data.').format(file_path, channel))
         
-    raw_data = [ pd.read_csv(file, header=None, engine="python") for file in input_files ]
-    df = pd.concat(raw_data)  
+    #raw_data = [ pd.read_csv(file, header=None, engine="python") for file in input_files ]
+    #df = pd.concat(raw_data)  
     
-    features = df.values #df.iloc[:,:-1].values
-    return features
+    features = pd.read_csv(input_files[0],index_col=0) #df.values #df.iloc[:,:-1].values
+    
+    return features.values
 
 
 
@@ -188,7 +198,7 @@ def _parse_args():
     parser.add_argument('--model_dir', type=str)
     parser.add_argument('--sm-model-dir', type=str, default=os.environ.get('SM_MODEL_DIR'))
     parser.add_argument('--train', type=str, default=os.environ.get('SM_CHANNEL_TRAINING'))
-    parser.add_argument('--test', type=str, default=os.environ.get('SM_CHANNEL_TESTING'))
+    #parser.add_argument('--test', type=str, default=os.environ.get('SM_CHANNEL_TESTING'))
     
     parser.add_argument('--hosts', type=list, default=json.loads(os.environ.get('SM_HOSTS')))
     parser.add_argument('--current-host', type=str, default=os.environ.get('SM_CURRENT_HOST'))
@@ -199,13 +209,12 @@ def _parse_args():
 if __name__ == "__main__":
     args, unknown = _parse_args()
     
-    client = boto3.client(
-    's3',
-    aws_access_key_id=current_credentials.access_key,
-    aws_secret_access_key=current_credentials.secret_key,
-    aws_session_token=current_credentials.token)
-
+    
+    client = create_client()
+    
+    #print(args.train)
     train_data = _load_data(args.train,'train')
+    
 
     gan = model(args,train_data,client)
 
